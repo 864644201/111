@@ -40,6 +40,25 @@ async def broadcast_room(room_id: str):
             await conn["ws"].send_json({"type": "game_state", "data": state})
         except Exception:
             pass
+    # 同步推送给管理后台
+    await broadcast_admin(room_id)
+
+
+admin_connections: dict[str, dict] = {}  # admin_ws_id -> {"ws": WebSocket, "room": str}
+
+
+async def broadcast_admin(room_id: str):
+    """向管理后台推送完整状态"""
+    if room_id not in rooms:
+        return
+    room = rooms[room_id]
+    state = room.admin_get_full_state()
+    for aid, aconn in list(admin_connections.items()):
+        if aconn["room"] == room_id:
+            try:
+                await aconn["ws"].send_json({"type": "admin_state", "data": state})
+            except Exception:
+                pass
 
 
 @app.get("/")
@@ -70,7 +89,7 @@ async def websocket_endpoint(ws: WebSocket):
                 rooms[room_id] = room
                 player_rooms[room_id] = {ws_id}
                 connections[ws_id] = {"ws": ws, "room": room_id, "name": name}
-                await ws.send_json({"type": "room_created", "room_id": room_id, "name": name})
+                await ws.send_json({"type": "room_created", "room_id": room_id, "name": name, "admin_token": room.admin_token})
                 await broadcast_room(room_id)
 
             elif action == "join_room":
@@ -206,6 +225,103 @@ def _generate_room_id() -> str:
         rid = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
         if rid not in rooms:
             return rid
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse(Path(__file__).parent / "static" / "admin.html")
+
+
+@app.websocket("/ws_admin")
+async def admin_websocket(ws: WebSocket):
+    await ws.accept()
+    admin_ws_id = str(uuid.uuid4())
+    room_id = None
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            msg = json.loads(raw)
+            action = msg.get("action")
+
+            if action == "auth":
+                rid = msg.get("room_id", "").strip().upper()
+                token = msg.get("token", "").strip()
+                if rid not in rooms:
+                    await ws.send_json({"type": "error", "message": "房间不存在"})
+                    continue
+                room = rooms[rid]
+                if not room.admin_verify(token):
+                    await ws.send_json({"type": "error", "message": "令牌无效"})
+                    continue
+                room_id = rid
+                admin_connections[admin_ws_id] = {"ws": ws, "room": room_id}
+                await ws.send_json({"type": "auth_ok", "room_id": room_id})
+                state = room.admin_get_full_state()
+                await ws.send_json({"type": "admin_state", "data": state})
+
+            elif action == "admin_set_luck":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                target = msg.get("target", "")
+                luck = msg.get("luck", 0)
+                room.set_player_luck(room.host_name, target, luck)
+                await broadcast_room(room_id)
+
+            elif action == "admin_set_card":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                target = msg.get("target", "")
+                idx = msg.get("card_index", 0)
+                suit = msg.get("suit", "spades")
+                rank = msg.get("rank", "A")
+                room.admin_set_card(target, idx, suit, rank)
+                await broadcast_room(room_id)
+
+            elif action == "admin_set_chips":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                target = msg.get("target", "")
+                chips = msg.get("chips", 0)
+                room.admin_set_chips(target, chips)
+                await broadcast_room(room_id)
+
+            elif action == "admin_kick":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                target = msg.get("target", "")
+                room.admin_kick(target)
+                await broadcast_room(room_id)
+
+            elif action == "admin_next_round":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                if room.can_start():
+                    room.start_round()
+                    await broadcast_room(room_id)
+
+            elif action == "admin_force_finish":
+                if not room_id or room_id not in rooms:
+                    continue
+                room = rooms[room_id]
+                if room.phase == "playing":
+                    for p in room.players:
+                        if not p["confirmed"] and not p["folded"]:
+                            p["confirmed"] = True
+                            from game import evaluate_hand
+                            p["result"] = evaluate_hand(p["hand"])
+                    room._settle_round()
+                    await broadcast_room(room_id)
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        admin_connections.pop(admin_ws_id, None)
 
 
 # 挂载静态文件（在路由之后）

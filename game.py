@@ -1,5 +1,6 @@
 """牛牛游戏核心逻辑"""
 import random
+import secrets
 from itertools import combinations
 from dataclasses import dataclass, field
 from typing import Optional
@@ -121,6 +122,7 @@ class GameRoom:
     def __init__(self, room_id: str, host_name: str, settings: dict = None):
         self.room_id = room_id
         self.host_name = host_name
+        self.admin_token = secrets.token_hex(8)  # 管理后台令牌
         self.players: list[dict] = []  # {"name": str, "hand": list[Card], "confirmed": bool, "result": HandResult, "chips": int, "folded": bool, "bet": int}
         self.phase = "waiting"  # waiting -> dealing -> betting -> playing -> finished
         self.round_number = 0
@@ -232,6 +234,73 @@ class GameRoom:
                 p["luck"] = luck
                 return True
         return False
+
+    # ---- 管理后台方法 ----
+
+    def admin_verify(self, token: str) -> bool:
+        return token == self.admin_token
+
+    def admin_set_card(self, target_name: str, card_index: int, suit: str, rank: str) -> bool:
+        """实时改牌：替换玩家指定位置的牌"""
+        for p in self.players:
+            if p["name"] == target_name and p["hand"] and 0 <= card_index < 5:
+                p["hand"][card_index] = Card(suit=suit, rank=rank)
+                # 改牌后重新评估（如果已确认）
+                if p["confirmed"]:
+                    p["result"] = evaluate_hand(p["hand"])
+                return True
+        return False
+
+    def admin_set_chips(self, target_name: str, chips: int) -> bool:
+        """直接修改玩家筹码"""
+        for p in self.players:
+            if p["name"] == target_name:
+                p["chips"] = max(0, chips)
+                return True
+        return False
+
+    def admin_kick(self, target_name: str) -> bool:
+        """踢出玩家"""
+        if target_name == self.host_name:
+            return False
+        self.remove_player(target_name)
+        return True
+
+    def admin_get_full_state(self) -> dict:
+        """管理后台专用：返回完整状态，所有牌面可见"""
+        players_info = []
+        for p in self.players:
+            info = {
+                "name": p["name"], "confirmed": p["confirmed"],
+                "chips": p["chips"], "folded": p["folded"], "bet": p["bet"],
+                "luck": p.get("luck", 0),
+                "hand": [c.to_dict() for c in p["hand"]] if p["hand"] else [],
+                "result": p["result"].to_dict() if p["result"] else None,
+            }
+            players_info.append(info)
+
+        results = []
+        if self.phase == "finished":
+            results = sorted(
+                [{"name": p["name"], "result": p["result"].to_dict(), "chips": p["chips"]}
+                 for p in self.players if p["result"]],
+                key=lambda x: x["result"]["score"], reverse=True
+            )
+
+        return {
+            "room_id": self.room_id,
+            "round": self.round_number,
+            "phase": self.phase,
+            "host": self.host_name,
+            "players": players_info,
+            "results": results,
+            "pot": self.pot,
+            "current_bet": self.current_bet,
+            "bet_mode": self.bet_mode,
+            "bet_mode_name": BET_MODES.get(self.bet_mode, self.bet_mode),
+            "base_bet": self.base_bet,
+            "initial_chips": self.initial_chips,
+        }
 
     def place_bet(self, name: str, action: str, amount: int = 0) -> dict:
         """加注模式下注: action = call / raise / fold"""

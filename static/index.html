@@ -146,6 +146,7 @@ input[type="text"]:focus { border-color: #f0c040; }
 .player-tag.host::after { content: " 👑"; }
 .start-area { margin-top: 20px; }
 .start-area .hint { opacity: .5; font-size: .85em; margin-top: 10px; }
+.admin-link { margin-top: 12px; padding: 10px; background: rgba(0,0,0,.2); border-radius: 8px; }
 
 /* ---- 游戏 ---- */
 #game { padding-top: 10px; }
@@ -249,47 +250,6 @@ input[type="text"]:focus { border-color: #f0c040; }
 }
 .conn-status.connected { background: rgba(46,204,113,.3); }
 .conn-status.disconnected { background: rgba(231,76,60,.3); }
-
-/* ---- 管理后台 ---- */
-.admin-toggle {
-  position: fixed; bottom: 20px; right: 20px; z-index: 999;
-  background: rgba(231,76,60,.8); color: #fff; border: none;
-  padding: 10px 16px; border-radius: 12px; cursor: pointer;
-  font-size: .85em; font-weight: bold; backdrop-filter: blur(8px);
-}
-.admin-toggle:hover { background: rgba(231,76,60,1); }
-.admin-panel {
-  position: fixed; bottom: 70px; right: 20px; z-index: 998;
-  background: rgba(20,20,30,.95); border: 1px solid rgba(255,255,255,.15);
-  border-radius: 14px; padding: 16px; width: 280px;
-  backdrop-filter: blur(12px); display: none;
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
-}
-.admin-panel.show { display: block; }
-.admin-panel h3 { margin-bottom: 12px; font-size: 1em; color: #f0c040; }
-.admin-player {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.06);
-}
-.admin-player:last-child { border-bottom: none; }
-.admin-player .name { font-weight: bold; font-size: .9em; width: 70px; overflow: hidden; text-overflow: ellipsis; }
-.admin-player .luck-controls { display: flex; gap: 4px; align-items: center; }
-.luck-btn {
-  width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,255,255,.2);
-  background: rgba(255,255,255,.08); color: #fff; cursor: pointer;
-  font-size: .75em; display: flex; align-items: center; justify-content: center;
-  transition: all .15s;
-}
-.luck-btn:hover { background: rgba(255,255,255,.2); }
-.luck-btn.active-good { background: rgba(46,204,113,.4); border-color: #2ecc71; }
-.luck-btn.active-bad { background: rgba(231,76,60,.4); border-color: #e74c3c; }
-.luck-label {
-  font-size: .75em; width: 40px; text-align: center;
-  color: rgba(255,255,255,.5);
-}
-.luck-label.good { color: #2ecc71; }
-.luck-label.bad { color: #e74c3c; }
-.luck-label.neutral { color: rgba(255,255,255,.3); }
 </style>
 </head>
 <body>
@@ -382,18 +342,12 @@ input[type="text"]:focus { border-color: #f0c040; }
   </div>
 </div>
 
-<!-- 管理后台（仅房主可见） -->
-<button class="admin-toggle" id="adminToggle" style="display:none" onclick="toggleAdmin()">⚙ 管理</button>
-<div class="admin-panel" id="adminPanel">
-  <h3>⚙ 管理后台</h3>
-  <div id="adminPlayers"></div>
-</div>
-
 <script>
 let ws = null;
 let myName = '';
 let roomId = '';
 let gameState = null;
+let adminToken = '';
 
 // ---- WebSocket ----
 function connect() {
@@ -423,6 +377,7 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'room_created':
       myName = msg.name; roomId = msg.room_id;
+      adminToken = msg.admin_token || '';
       showScreen('waiting');
       break;
     case 'room_joined':
@@ -476,42 +431,6 @@ function sendChat() {
   input.value = '';
 }
 
-// ---- 管理后台 ----
-function toggleAdmin() {
-  document.getElementById('adminPanel').classList.toggle('show');
-}
-
-function setLuck(target, luck) {
-  send({ action: 'set_luck', target, luck });
-}
-
-function renderAdmin() {
-  const s = gameState;
-  if (!s || myName !== s.host) {
-    document.getElementById('adminToggle').style.display = 'none';
-    document.getElementById('adminPanel').classList.remove('show');
-    return;
-  }
-  document.getElementById('adminToggle').style.display = '';
-  const luckNames = { '-3': '大衰', '-2': '衰', '-1': '小衰', '0': '平', '1': '小旺', '2': '旺', '3': '大旺' };
-  document.getElementById('adminPlayers').innerHTML = s.players.map(p => {
-    const luck = p.luck || 0;
-    const buttons = [-3,-2,-1,0,1,2,3].map(l => {
-      const isActive = l === luck;
-      const cls = l > 0 ? 'good' : l < 0 ? 'bad' : 'neutral';
-      return `<button class="luck-btn ${isActive ? (l > 0 ? 'active-good' : l < 0 ? 'active-bad' : '') : ''}" onclick="setLuck('${esc(p.name)}',${l})">${l > 0 ? '+'+l : l}</button>`;
-    }).join('');
-    const labelCls = luck > 0 ? 'good' : luck < 0 ? 'bad' : 'neutral';
-    return `<div class="admin-player">
-      <span class="name">${esc(p.name)}</span>
-      <div class="luck-controls">
-        ${buttons}
-        <span class="luck-label ${labelCls}">${luckNames[luck] || '平'}</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-
 function copyRoomCode() {
   navigator.clipboard.writeText(roomId).then(() => showToast('房间号已复制!'));
 }
@@ -542,9 +461,17 @@ function renderState() {
     ).join('');
     const area = document.getElementById('startArea');
     if (myName === s.host) {
-      area.innerHTML = s.players.length >= 2
+      const adminUrl = `${location.origin}/admin`;
+      let html = s.players.length >= 2
         ? `<button class="btn btn-gold" onclick="startGame()">开始游戏 (${s.players.length}人)</button>`
         : `<p class="hint">至少需要2名玩家才能开始</p>`;
+      if (adminToken) {
+        html += `<div class="admin-link">
+          <span style="opacity:.5;font-size:.8em">管理后台: <a href="${adminUrl}" target="_blank" style="color:#f0c040">${adminUrl}</a></span><br>
+          <span style="opacity:.5;font-size:.8em">令牌: <code style="background:rgba(255,255,255,.1);padding:2px 8px;border-radius:4px;cursor:pointer" onclick="navigator.clipboard.writeText('${adminToken}').then(()=>showToast('令牌已复制'))">${adminToken}</code></span>
+        </div>`;
+      }
+      area.innerHTML = html;
     } else {
       area.innerHTML = '<p class="hint">等待房主开始游戏...</p>';
     }
@@ -645,9 +572,6 @@ function renderState() {
       ).join('');
       chatDiv.scrollTop = chatDiv.scrollHeight;
     }
-
-    // 管理后台
-    renderAdmin();
   }
 }
 

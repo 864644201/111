@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>牛牛管理后台</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Microsoft YaHei", sans-serif;
+  background: #1a1a2e; color: #e0e0e0; min-height: 100vh;
+}
+
+/* ---- 登录 ---- */
+.auth-screen { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.auth-box {
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px; padding: 40px; width: 360px; text-align: center;
+}
+.auth-box h1 { font-size: 1.8em; margin-bottom: 8px; }
+.auth-box .sub { opacity: .5; margin-bottom: 24px; font-size: .9em; }
+.auth-box input {
+  width: 100%; padding: 12px; border: 2px solid rgba(255,255,255,.15);
+  border-radius: 10px; background: rgba(255,255,255,.06); color: #fff;
+  font-size: 1em; text-align: center; outline: none; margin-bottom: 12px;
+}
+.auth-box input:focus { border-color: #e74c3c; }
+.auth-box button {
+  padding: 12px 32px; border: none; border-radius: 10px;
+  background: #e74c3c; color: #fff; font-size: 1em; font-weight: bold;
+  cursor: pointer; width: 100%;
+}
+.auth-box button:hover { background: #c0392b; }
+.auth-error { color: #ff6b6b; margin-top: 10px; font-size: .85em; min-height: 1.2em; }
+
+/* ---- 主面板 ---- */
+.admin-main { display: none; padding: 16px; max-width: 1200px; margin: 0 auto; }
+.admin-main.show { display: block; }
+.topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.topbar h1 { font-size: 1.3em; }
+.topbar .room-info { opacity: .5; font-size: .9em; }
+.topbar .actions { display: flex; gap: 8px; }
+
+/* 阶段指示 */
+.phase-badge {
+  display: inline-block; padding: 4px 12px; border-radius: 12px;
+  font-size: .8em; font-weight: bold; margin-left: 12px;
+}
+.phase-badge.waiting { background: rgba(52,152,219,.3); color: #3498db; }
+.phase-badge.betting { background: rgba(241,196,15,.3); color: #f1c40f; }
+.phase-badge.playing { background: rgba(46,204,113,.3); color: #2ecc71; }
+.phase-badge.finished { background: rgba(155,89,182,.3); color: #9b59b6; }
+
+/* ---- 玩家卡片 ---- */
+.players-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px; margin-bottom: 20px;
+}
+.player-card {
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; padding: 16px; transition: border-color .2s;
+}
+.player-card.folded { opacity: .4; }
+.player-card .header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.player-card .name { font-weight: bold; font-size: 1.1em; }
+.player-card .name .tag { font-size: .7em; opacity: .5; margin-left: 6px; }
+.player-card .chips { color: #f0c040; font-weight: bold; }
+.player-card .result { font-size: 1em; font-weight: bold; margin: 6px 0; color: #2ecc71; }
+
+/* 牌面 */
+.cards-row { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.editable-card {
+  width: 52px; height: 74px; border-radius: 6px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-weight: bold; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  transition: transform .15s, box-shadow .15s; position: relative;
+  border: 2px solid transparent;
+}
+.editable-card:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,.5); border-color: #f0c040; }
+.editable-card .rank { font-size: 1.1em; line-height: 1; }
+.editable-card .suit { font-size: .85em; line-height: 1; margin-top: 1px; }
+.editable-card.black { background: #fff; color: #1a1a1a; }
+.editable-card.red { background: #fff; color: #e74c3c; }
+.editable-card.empty { background: rgba(255,255,255,.08); color: rgba(255,255,255,.2); border: 2px dashed rgba(255,255,255,.15); }
+
+/* 操作区 */
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ctrl-group { display: flex; align-items: center; gap: 4px; }
+.ctrl-group label { font-size: .75em; opacity: .5; }
+.luck-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.06); color: #fff; cursor: pointer; font-size: .7em;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.luck-btn:hover { background: rgba(255,255,255,.15); }
+.luck-btn.on-good { background: rgba(46,204,113,.4); border-color: #2ecc71; }
+.luck-btn.on-bad { background: rgba(231,76,60,.4); border-color: #e74c3c; }
+.chip-input {
+  width: 80px; padding: 4px 8px; border: 1px solid rgba(255,255,255,.15);
+  border-radius: 6px; background: rgba(255,255,255,.06); color: #fff;
+  font-size: .8em; text-align: center; outline: none;
+}
+.small-btn {
+  padding: 4px 10px; border: 1px solid rgba(255,255,255,.15); border-radius: 6px;
+  background: rgba(255,255,255,.06); color: #fff; font-size: .75em;
+  cursor: pointer; transition: all .15s;
+}
+.small-btn:hover { background: rgba(255,255,255,.15); }
+.small-btn.danger { border-color: rgba(231,76,60,.4); color: #e74c3c; }
+.small-btn.danger:hover { background: rgba(231,76,60,.2); }
+.small-btn.primary { border-color: rgba(240,192,64,.4); color: #f0c040; }
+.small-btn.primary:hover { background: rgba(240,192,64,.15); }
+
+/* ---- 换牌弹窗 ---- */
+.card-picker-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 1000;
+  display: flex; justify-content: center; align-items: center;
+}
+.card-picker {
+  background: #1e1e30; border: 1px solid rgba(255,255,255,.15);
+  border-radius: 16px; padding: 24px; width: 420px; max-height: 80vh; overflow-y: auto;
+}
+.card-picker h3 { margin-bottom: 16px; font-size: 1em; }
+.card-picker .close-btn {
+  float: right; background: none; border: none; color: #fff; font-size: 1.2em; cursor: pointer; opacity: .5;
+}
+.card-picker .close-btn:hover { opacity: 1; }
+.picker-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 4px; margin-bottom: 12px; }
+.picker-card {
+  width: 28px; height: 40px; border-radius: 4px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: .6em; font-weight: bold; transition: transform .1s; box-shadow: 1px 1px 3px rgba(0,0,0,.3);
+}
+.picker-card:hover { transform: scale(1.15); z-index: 1; }
+.picker-card.used { opacity: .2; pointer-events: none; }
+.picker-card.black { background: #fff; color: #1a1a1a; }
+.picker-card.red { background: #fff; color: #e74c3c; }
+
+/* ---- 全局操作 ---- */
+.global-actions {
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px; padding: 16px; margin-top: 12px;
+}
+.global-actions h3 { font-size: .9em; margin-bottom: 12px; opacity: .6; }
+.global-actions .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 连接状态 */
+.conn { position: fixed; top: 10px; right: 10px; font-size: .75em; padding: 3px 10px; border-radius: 10px; }
+.conn.on { background: rgba(46,204,113,.25); color: #2ecc71; }
+.conn.off { background: rgba(231,76,60,.25); color: #e74c3c; }
+</style>
+</head>
+<body>
+
+<div class="conn off" id="connStatus">未连接</div>
+
+<!-- 登录 -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-box">
+    <h1>管理后台</h1>
+    <p class="sub">牛牛游戏控制中心</p>
+    <input type="text" id="authRoomId" placeholder="房间号（如 A3K9）" maxlength="4" style="text-transform:uppercase">
+    <input type="text" id="authToken" placeholder="管理令牌">
+    <button onclick="doAuth()">进入后台</button>
+    <div class="auth-error" id="authError"></div>
+  </div>
+</div>
+
+<!-- 主面板 -->
+<div class="admin-main" id="adminMain">
+  <div class="topbar">
+    <div>
+      <h1>管理后台</h1>
+      <span class="room-info" id="roomInfo"></span>
+      <span class="phase-badge" id="phaseBadge"></span>
+    </div>
+    <div class="actions">
+      <button class="small-btn primary" onclick="doNextRound()">下一轮</button>
+      <button class="small-btn" onclick="doForceFinish()">强制结算</button>
+    </div>
+  </div>
+  <div class="players-grid" id="playersGrid"></div>
+</div>
+
+<!-- 换牌弹窗 -->
+<div class="card-picker-overlay" id="cardPicker" style="display:none" onclick="if(event.target===this)closePicker()">
+  <div class="card-picker">
+    <button class="close-btn" onclick="closePicker()">&times;</button>
+    <h3 id="pickerTitle">选择牌</h3>
+    <div class="picker-grid" id="pickerGrid"></div>
+  </div>
+</div>
+
+<script>
+let ws = null;
+let adminState = null;
+let pickTarget = null;
+let pickIndex = 0;
+
+// 所有牌
+const SUITS = ['spades','hearts','diamonds','clubs'];
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUIT_SYM = {spades:'♠',hearts:'♥',diamonds:'♦',clubs:'♣'};
+const SUIT_CLR = {spades:'black',hearts:'red',diamonds:'red',clubs:'black'};
+
+// ---- WebSocket ----
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws_admin`);
+  ws.onopen = () => {
+    document.getElementById('connStatus').className = 'conn on';
+    document.getElementById('connStatus').textContent = '已连接';
+    // 如果有保存的凭据，自动认证
+    const saved = sessionStorage.getItem('admin_creds');
+    if (saved) {
+      const {room_id, token} = JSON.parse(saved);
+      send({action:'auth', room_id, token});
+    }
+  };
+  ws.onclose = () => {
+    document.getElementById('connStatus').className = 'conn off';
+    document.getElementById('connStatus').textContent = '已断开';
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+}
+
+function send(data) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); }
+
+// ---- 消息处理 ----
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'auth_ok':
+      sessionStorage.setItem('admin_creds', JSON.stringify({room_id: msg.room_id, token: document.getElementById('authToken').value}));
+      document.getElementById('authScreen').style.display = 'none';
+      document.getElementById('adminMain').classList.add('show');
+      break;
+    case 'error':
+      if (!adminState) {
+        document.getElementById('authError').textContent = msg.message;
+      }
+      break;
+    case 'admin_state':
+      adminState = msg.data;
+      renderAdmin();
+      break;
+  }
+}
+
+// ---- 认证 ----
+function doAuth() {
+  const room_id = document.getElementById('authRoomId').value.trim().toUpperCase();
+  const token = document.getElementById('authToken').value.trim();
+  if (!room_id || !token) { document.getElementById('authError').textContent = '请填写房间号和令牌'; return; }
+  send({action:'auth', room_id, token});
+}
+document.getElementById('authRoomId').addEventListener('keydown', e => { if (e.key === 'Enter') doAuth(); });
+document.getElementById('authToken').addEventListener('keydown', e => { if (e.key === 'Enter') doAuth(); });
+
+// ---- 渲染 ----
+function renderAdmin() {
+  const s = adminState;
+  if (!s) return;
+
+  // 顶栏
+  document.getElementById('roomInfo').textContent = `房间 ${s.room_id} · ${s.bet_mode_name} · 奖池 ${s.pot}`;
+  const badge = document.getElementById('phaseBadge');
+  const phaseNames = {waiting:'等待中',betting:'下注中',playing:'亮牌中',finished:'已结算'};
+  badge.textContent = phaseNames[s.phase] || s.phase;
+  badge.className = 'phase-badge ' + s.phase;
+
+  // 玩家卡片
+  const grid = document.getElementById('playersGrid');
+  grid.innerHTML = s.players.map((p, pi) => {
+    const cardsHtml = p.hand.length > 0
+      ? p.hand.map((c, ci) =>
+          `<div class="editable-card ${c.color}" onclick="openPicker('${esc(p.name)}',${ci})" title="点击换牌">
+            <span class="rank">${c.rank}</span>
+            <span class="suit">${c.symbol}</span>
+          </div>`
+        ).join('')
+      : '<div style="opacity:.3;font-size:.85em">未发牌</div>';
+
+    const resultHtml = p.result ? `<div class="result">${esc(p.result.display)}</div>` : '';
+    const hostTag = p.name === s.host ? '<span class="tag">👑 房主</span>' : '';
+    const foldedTag = p.folded ? '<span class="tag" style="color:#e74c3c">已弃牌</span>' : '';
+
+    const luckLabels = {'-3':'大衰','-2':'衰','-1':'小衰','0':'平','1':'小旺','2':'旺','3':'大旺'};
+
+    return `<div class="player-card${p.folded ? ' folded' : ''}">
+      <div class="header">
+        <span class="name">${esc(p.name)}${hostTag}${foldedTag}</span>
+        <span class="chips">💰 ${p.chips}</span>
+      </div>
+      <div class="cards-row">${cardsHtml}</div>
+      ${resultHtml}
+      <div class="controls">
+        <div class="ctrl-group">
+          <label>手气:</label>
+          ${[-3,-2,-1,0,1,2,3].map(l => {
+            const on = l === (p.luck||0);
+            const cls = on ? (l > 0 ? 'on-good' : l < 0 ? 'on-bad' : '') : '';
+            return `<button class="luck-btn ${cls}" onclick="setLuck('${esc(p.name)}',${l})" title="${luckLabels[l]}">${l>0?'+'+l:l}</button>`;
+          }).join('')}
+        </div>
+        <div class="ctrl-group">
+          <label>筹码:</label>
+          <input type="number" class="chip-input" id="chip_${pi}" value="${p.chips}" min="0">
+          <button class="small-btn" onclick="setChips('${esc(p.name)}',document.getElementById('chip_${pi}').value)">改</button>
+        </div>
+        ${p.name !== s.host ? `<button class="small-btn danger" onclick="kickPlayer('${esc(p.name)}')">踢出</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ---- 操作 ----
+function setLuck(name, luck) { send({action:'admin_set_luck', target:name, luck}); }
+function setChips(name, chips) { send({action:'admin_set_chips', target:name, chips:parseInt(chips)||0}); }
+function kickPlayer(name) { if(confirm(`确定踢出 ${name}？`)) send({action:'admin_kick', target:name}); }
+function doNextRound() { send({action:'admin_next_round'}); }
+function doForceFinish() { if(confirm('强制结算所有未亮牌玩家？')) send({action:'admin_force_finish'}); }
+
+// ---- 换牌弹窗 ----
+function openPicker(playerName, cardIndex) {
+  pickTarget = {name: playerName, index: cardIndex};
+  document.getElementById('pickerTitle').textContent = `给 ${playerName} 换第 ${cardIndex+1} 张牌`;
+
+  // 收集已使用的牌
+  const used = new Set();
+  if (adminState) {
+    adminState.players.forEach(p => {
+      p.hand.forEach(c => { if (c.rank !== '?') used.add(c.suit + '_' + c.rank); });
+    });
+  }
+
+  const grid = document.getElementById('pickerGrid');
+  grid.innerHTML = SUITS.map(suit =>
+    RANKS.map(rank => {
+      const key = suit + '_' + rank;
+      const isUsed = used.has(key);
+      return `<div class="picker-card ${SUIT_CLR[suit]} ${isUsed ? 'used' : ''}"
+                   onclick="pickCard('${suit}','${rank}')">
+        <span>${rank}</span><span>${SUIT_SYM[suit]}</span>
+      </div>`;
+    }).join('')
+  ).join('');
+
+  document.getElementById('cardPicker').style.display = '';
+}
+
+function closePicker() { document.getElementById('cardPicker').style.display = 'none'; }
+
+function pickCard(suit, rank) {
+  if (!pickTarget) return;
+  send({action:'admin_set_card', target:pickTarget.name, card_index:pickTarget.index, suit, rank});
+  closePicker();
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ---- 启动 ----
+connect();
+</script>
+</body>
+</html>

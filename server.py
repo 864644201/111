@@ -171,7 +171,7 @@ def get_rooms_overview() -> list[dict]:
             "round": room.round_number,
             "player_count": len(room.players),
             "players": [p["name"] for p in room.players],
-            "bet_mode": room.bet_mode_name,
+            "bet_mode": BET_MODES.get(room.bet_mode, room.bet_mode),
             "pot": room.pot,
         })
     return result
@@ -203,7 +203,7 @@ async def list_rooms():
                 "host": room.host_name,
                 "player_count": len(room.players),
                 "players": [p["name"] for p in room.players],
-                "bet_mode": room.bet_mode_name,
+                "bet_mode": BET_MODES.get(room.bet_mode, room.bet_mode),
                 "bet_mode_key": room.bet_mode,
                 "initial_chips": room.initial_chips,
                 "base_bet": room.base_bet,
